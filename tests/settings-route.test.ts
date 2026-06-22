@@ -8,6 +8,9 @@ describe("settings route", () => {
     const body = await res.json();
     expect(body).toHaveProperty("timeZone");
     expect(body).not.toHaveProperty("googleRefresh");
+    expect(body).not.toHaveProperty("googleAccessTok");
+    expect(body).not.toHaveProperty("googleTokenExp");
+    expect(body).toHaveProperty("connected");
   });
 
   it("PUT updates the timezone", async () => {
@@ -19,6 +22,16 @@ describe("settings route", () => {
     const res = await PUT(req);
     const body = await res.json();
     expect(body.timeZone).toBe("Europe/London");
+  });
+
+  it("PUT returns 400 for invalid input", async () => {
+    const req = new Request("http://localhost:3000/api/settings", {
+      method: "PUT",
+      body: JSON.stringify({ timeZone: 12345 }), // invalid type
+      headers: { "content-type": "application/json" },
+    });
+    const res = await PUT(req);
+    expect(res.status).toBe(400);
   });
 
   afterAll(async () => { await prisma.$disconnect(); });

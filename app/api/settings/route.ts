@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { getSettings, updateSettings } from "@/lib/settings";
 
 function sanitize(s: Awaited<ReturnType<typeof getSettings>>) {
-  const { googleRefresh, googleAccessTok, ...safe } = s;
+  const { googleRefresh, googleAccessTok, googleTokenExp, ...safe } = s;
   return { ...safe, connected: Boolean(googleRefresh) };
 }
 
