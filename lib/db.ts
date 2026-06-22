@@ -1,17 +1,21 @@
 import "dotenv/config";
 import { PrismaClient } from "@prisma/client";
-import { PrismaBetterSqlite3 } from "@prisma/adapter-better-sqlite3";
 
 const databaseUrl = process.env.DATABASE_URL ?? "file:./dev.db";
 const globalForPrisma = globalThis as unknown as { prisma?: PrismaClient };
 
 function createClient(): PrismaClient {
   if (databaseUrl.startsWith("file:")) {
+    const { PrismaBetterSqlite3 } = require("@prisma/adapter-better-sqlite3");
     return new PrismaClient({ adapter: new PrismaBetterSqlite3({ url: databaseUrl.slice(5) }) });
+  } else if (databaseUrl.startsWith("postgres:") || databaseUrl.startsWith("postgresql:")) {
+    const { PrismaPg } = require("@prisma/adapter-pg");
+    const { Pool } = require("pg");
+    const pool = new Pool({ connectionString: databaseUrl });
+    return new PrismaClient({ adapter: new PrismaPg(pool) });
   }
   throw new Error(
-    `Unsupported DATABASE_URL "${databaseUrl}". Phase 1 supports SQLite (file:) only; ` +
-    `Postgres requires wiring @prisma/adapter-pg.`
+    `Unsupported DATABASE_URL "${databaseUrl}". Supported protocols: file:, postgres:, postgresql:.`
   );
 }
 
