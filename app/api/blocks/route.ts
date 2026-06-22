@@ -1,5 +1,8 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
+import { getSettings } from "@/lib/settings";
+import { getAuthedClient } from "@/lib/google/oauth";
+import { listAllEvents } from "@/lib/google/calendar";
 
 export async function GET(req: Request) {
   const { searchParams } = new URL(req.url);
@@ -38,7 +41,32 @@ export async function GET(req: Request) {
       goalId: b.goalId,
     }));
 
-    return NextResponse.json(mapped);
+    // Fetch external events if Google Calendar is connected
+    const settings = await getSettings();
+    let externalEvents: any[] = [];
+    if (settings.googleRefresh) {
+      try {
+        const auth = await getAuthedClient();
+        const googleEvents = await listAllEvents(auth, start, end);
+        externalEvents = googleEvents
+          .filter((e: any) => e.extendedProperties?.private?.beniPlanner !== "1")
+          .map((item: any) => ({
+            id: item.id || "",
+            start: new Date(item.start?.dateTime || item.start?.date || ""),
+            end: new Date(item.end?.dateTime || item.end?.date || ""),
+            status: "planned",
+            googleEventId: item.id || "",
+            name: item.summary || "Busy",
+            type: "external",
+            habitId: undefined,
+            goalId: undefined,
+          }));
+      } catch (err) {
+        console.error("[Blocks API] Failed to fetch Google Calendar events:", err);
+      }
+    }
+
+    return NextResponse.json([...mapped, ...externalEvents]);
   } catch (err: any) {
     return NextResponse.json({ error: err.message || err }, { status: 400 });
   }

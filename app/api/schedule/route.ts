@@ -6,6 +6,7 @@ export async function POST() {
     await runScheduling();
     return NextResponse.json({ success: true });
   } catch (err: any) {
+    console.error("[Schedule Route Error]:", err);
     return NextResponse.json({ error: err.message || err }, { status: 500 });
   }
 }

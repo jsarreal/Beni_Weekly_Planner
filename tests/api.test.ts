@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, afterAll } from "vitest";
+import { describe, it, expect, vi, beforeAll, afterAll } from "vitest";
 
 // Mock the scheduler run
 vi.mock("../lib/scheduler", () => ({
@@ -16,10 +16,18 @@ import { PUT as putReview } from "../app/api/reviews/[id]/route";
 import { prisma } from "../lib/db";
 
 describe("Habits and Goals API Routes", () => {
+  beforeAll(async () => {
+    await prisma.habit.deleteMany({});
+    await prisma.goal.deleteMany({});
+    await prisma.block.deleteMany({});
+    await prisma.dailyReview.deleteMany({});
+  });
+
   afterAll(async () => {
     await prisma.habit.deleteMany({});
     await prisma.goal.deleteMany({});
     await prisma.block.deleteMany({});
+    await prisma.dailyReview.deleteMany({});
     await prisma.$disconnect();
   });
 

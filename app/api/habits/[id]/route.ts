@@ -24,7 +24,11 @@ export async function PUT(
     });
 
     // Run scheduler to update calendar
-    await runScheduling();
+    try {
+      await runScheduling();
+    } catch (schedErr) {
+      console.error("[PUT Habit Route] Scheduling update failed:", schedErr);
+    }
 
     return NextResponse.json(habit);
   } catch (err: any) {
@@ -44,7 +48,11 @@ export async function DELETE(
     });
 
     // Run scheduler to update calendar
-    await runScheduling();
+    try {
+      await runScheduling();
+    } catch (schedErr) {
+      console.error("[DELETE Habit Route] Scheduling update failed:", schedErr);
+    }
 
     return NextResponse.json({ success: true });
   } catch (err: any) {

@@ -33,7 +33,7 @@ interface Block {
   status: "planned" | "done" | "partial" | "skipped";
   googleEventId?: string;
   name: string;
-  type: "habit" | "goal" | "sleep";
+  type: "habit" | "goal" | "sleep" | "external";
   habitId?: string;
   goalId?: string;
 }
@@ -58,10 +58,10 @@ export default function Dashboard() {
   const [currentWeekStart, setCurrentWeekStart] = useState<Date>(() => {
     const today = new Date();
     const day = today.getDay();
-    const diff = today.getDate() - day + (day === 0 ? -6 : 1); // Monday
-    const mon = new Date(today.setDate(diff));
-    mon.setHours(0, 0, 0, 0);
-    return mon;
+    const diff = today.getDate() - day; // Sunday
+    const sun = new Date(today.setDate(diff));
+    sun.setHours(0, 0, 0, 0);
+    return sun;
   });
 
   const [loading, setLoading] = useState(false);
@@ -90,6 +90,24 @@ export default function Dashboard() {
   useEffect(() => {
     fetchBlocks();
   }, [currentWeekStart]);
+
+  // Trigger background sync when settings load or calendar connects
+  useEffect(() => {
+    if (settings?.connected) {
+      fetch("/api/sync", { method: "POST" })
+        .then(res => {
+          if (res.ok) return res.json();
+          throw new Error("Failed to sync");
+        })
+        .then(data => {
+          if (data.synced || data.replanned) {
+            console.log("[Background Sync] Calendar synced, reloading blocks.");
+            fetchBlocks();
+          }
+        })
+        .catch(err => console.error("[Background Sync] Error:", err));
+    }
+  }, [settings?.connected]);
 
   const showStatus = (text: string, type: "success" | "error" = "success") => {
     setStatusMessage({ text, type });
@@ -395,10 +413,10 @@ export default function Dashboard() {
     const dayWindows: Record<string, any> = {};
     days.forEach(d => {
       dayWindows[d] = {
-        wakeMin: parseInt(formData.get(`${d}-wakeMin`) as string, 10),
-        sleepMin: parseInt(formData.get(`${d}-sleepMin`) as string, 10),
-        workStartMin: parseInt(formData.get(`${d}-workStartMin`) as string, 10),
-        workEndMin: parseInt(formData.get(`${d}-workEndMin`) as string, 10),
+        wakeTime: formData.get(`${d}-wakeTime`) as string,
+        sleepTime: formData.get(`${d}-sleepTime`) as string,
+        workStartTime: formData.get(`${d}-workStartTime`) as string,
+        workEndTime: formData.get(`${d}-workEndTime`) as string,
       };
     });
 
@@ -442,22 +460,29 @@ export default function Dashboard() {
   const goToday = () => {
     const today = new Date();
     const day = today.getDay();
-    const diff = today.getDate() - day + (day === 0 ? -6 : 1);
-    const mon = new Date(today.setDate(diff));
-    mon.setHours(0, 0, 0, 0);
-    setCurrentWeekStart(mon);
+    const diff = today.getDate() - day; // Sunday
+    const sun = new Date(today.setDate(diff));
+    sun.setHours(0, 0, 0, 0);
+    setCurrentWeekStart(sun);
+  };
+
+  const toLocalYYYYMMDD = (d: Date) => {
+    const year = d.getFullYear();
+    const month = String(d.getMonth() + 1).padStart(2, "0");
+    const day = String(d.getDate()).padStart(2, "0");
+    return `${year}-${month}-${day}`;
   };
 
   // Helper to render days of week header
   const getWeekDays = () => {
     const days = [];
-    const mapping = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
+    const mapping = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
     for (let i = 0; i < 7; i++) {
       const d = new Date(currentWeekStart.getTime() + i * 24 * 60 * 60 * 1000);
       days.push({
         name: mapping[i],
-        dateStr: `${d.getUTCDate()}/${d.getUTCMonth() + 1}`,
-        isoStr: d.toISOString().split("T")[0],
+        dateStr: d.toLocaleDateString(undefined, { day: "numeric", month: "numeric" }),
+        isoStr: toLocalYYYYMMDD(d),
       });
     }
     return days;
@@ -468,7 +493,7 @@ export default function Dashboard() {
   // Helper to place blocks inside column
   const getBlocksForDay = (dateStr: string) => {
     return blocks.filter(b => {
-      const bDate = b.start.split("T")[0];
+      const bDate = toLocalYYYYMMDD(new Date(b.start));
       return bDate === dateStr;
     });
   };
@@ -574,9 +599,9 @@ export default function Dashboard() {
           ) : (
             <div style={{ overflowX: "auto" }}>
               <div style={{ minWidth: 900 }}>
-                {/* Grid header */}
+                 {/* Grid header */}
                 <div className="calendar-grid">
-                  <div className="calendar-header-cell" style={{ background: "rgba(0,0,0,0.3)" }}>UTC Time</div>
+                  <div className="calendar-header-cell" style={{ background: "rgba(0,0,0,0.3)" }}>Time</div>
                   {weekDays.map(d => (
                     <div key={d.name} className="calendar-header-cell">
                       <div style={{ fontWeight: 600 }}>{d.name}</div>
@@ -584,84 +609,105 @@ export default function Dashboard() {
                     </div>
                   ))}
 
-                  {/* 24-hour rows */}
+                  {/* Left sidebar: 24 hour labels */}
                   {Array.from({ length: 24 }).map((_, hourIndex) => {
-                    const hourLabel = `${hourIndex.toString().padStart(2, "0")}:00`;
+                    const dummyDate = new Date();
+                    dummyDate.setHours(hourIndex, 0, 0, 0);
+                    const hourLabel = dummyDate.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
                     return (
-                      <div key={hourIndex} style={{ display: "contents" }}>
-                        {/* Time cell */}
-                        <div className="calendar-time-cell" style={{ height: 60 }}>
-                          {hourLabel}
-                        </div>
+                      <div 
+                        key={hourIndex} 
+                        className="calendar-time-cell" 
+                        style={{ 
+                          height: 60, 
+                          gridColumn: 1, 
+                          gridRow: hourIndex + 2 
+                        }}
+                      >
+                        {hourLabel}
+                      </div>
+                    );
+                  })}
 
-                        {/* Col cells */}
-                        {weekDays.map(day => {
-                          const dayBlocks = getBlocksForDay(day.isoStr);
+                  {/* 7 Day columns spanning the full height of the 24 hour rows */}
+                  {weekDays.map((day, dayIndex) => {
+                    const dayBlocks = getBlocksForDay(day.isoStr);
+                    return (
+                      <div 
+                        key={day.isoStr} 
+                        className="calendar-day-column" 
+                        style={{ 
+                          gridColumn: dayIndex + 2, 
+                          gridRow: "2 / span 24",
+                          height: 24 * 60,
+                          position: "relative"
+                        }}
+                      >
+                        {/* Draw hour background lines */}
+                        {Array.from({ length: 24 }).map((_, hourIndex) => (
+                          <div key={hourIndex} className="calendar-hour-slot" style={{ height: 60 }} />
+                        ))}
+
+                        {/* Absolute elements */}
+                        {dayBlocks.map(block => {
+                          const bStart = new Date(block.start);
+                          const bEnd = new Date(block.end);
+                          const startMin = bStart.getHours() * 60 + bStart.getMinutes();
+                          const duration = (bEnd.getTime() - bStart.getTime()) / (60 * 1000);
+
+                          // Compute styles
+                          const top = (startMin / 60) * 60; // 60px per hour
+                          const height = (duration / 60) * 60;
+
+                          // Colors based on type
+                          let accentColor = "var(--accent-purple)";
+                          let bgColor = "var(--accent-purple-glow)";
+                          if (block.type === "goal") {
+                            accentColor = "var(--accent-blue)";
+                            bgColor = "var(--accent-blue-glow)";
+                          } else if (block.type === "sleep") {
+                            accentColor = "var(--accent-sleep)";
+                            bgColor = "var(--accent-sleep-glow)";
+                          } else if (block.type === "external") {
+                            accentColor = "#94a3b8";
+                            bgColor = "rgba(148, 163, 184, 0.12)";
+                          }
+
+                          // Status modifiers
+                          let statusBorder = "solid";
+                          let opacity = 1;
+                          if (block.status === "done") {
+                            accentColor = "var(--accent-green)";
+                            bgColor = "var(--accent-green-glow)";
+                          } else if (block.status === "skipped") {
+                            accentColor = "rgba(255,255,255,0.15)";
+                            bgColor = "rgba(0,0,0,0.3)";
+                            opacity = 0.4;
+                          }
+
                           return (
-                            <div key={day.isoStr} className="calendar-day-column" style={{ height: 60 }}>
-                              {/* Draw hour lines */}
-                              <div className="calendar-hour-slot" />
-
-                              {/* Absolute elements */}
-                              {dayBlocks.map(block => {
-                                const bStart = new Date(block.start);
-                                const bEnd = new Date(block.end);
-                                const startMin = bStart.getUTCHours() * 60 + bStart.getUTCMinutes();
-                                const duration = (bEnd.getTime() - bStart.getTime()) / (60 * 1000);
-
-                                // Compute styles
-                                const top = (startMin / 60) * 60; // 60px per hour
-                                const height = (duration / 60) * 60;
-
-                                // Colors based on type
-                                let accentColor = "var(--accent-purple)";
-                                let bgColor = "var(--accent-purple-glow)";
-                                if (block.type === "goal") {
-                                  accentColor = "var(--accent-blue)";
-                                  bgColor = "var(--accent-blue-glow)";
-                                } else if (block.type === "sleep") {
-                                  accentColor = "var(--accent-sleep)";
-                                  bgColor = "var(--accent-sleep-glow)";
-                                }
-
-                                // Status modifiers
-                                let statusBorder = "solid";
-                                let opacity = 1;
-                                if (block.status === "done") {
-                                  accentColor = "var(--accent-green)";
-                                  bgColor = "var(--accent-green-glow)";
-                                } else if (block.status === "skipped") {
-                                  accentColor = "rgba(255,255,255,0.15)";
-                                  bgColor = "rgba(0,0,0,0.3)";
-                                  opacity = 0.4;
-                                }
-
-                                return (
-                                  <div
-                                    key={block.id}
-                                    className="calendar-block"
-                                    onClick={() => {
+                            <div
+                              key={block.id}
+                              className="calendar-block"
+                              onClick={() => {
                                       setSelectedBlock(block);
                                       blockModalRef.current?.showModal();
-                                    }}
-                                    style={{
-                                      top: `${top}px`,
-                                      height: `${height}px`,
-                                      background: bgColor,
-                                      borderColor: accentColor,
-                                      borderStyle: statusBorder,
-                                      opacity: opacity,
-                                    }}
-                                  >
-                                    <div style={{ fontWeight: 600, textOverflow: "ellipsis", overflow: "hidden", whiteSpace: "nowrap" }}>
-                                      {block.name}
-                                    </div>
-                                    <div style={{ fontSize: "0.65rem", opacity: 0.8 }}>
-                                      {bStart.getUTCHours().toString().padStart(2, "0")}:{bStart.getUTCMinutes().toString().padStart(2, "0")} - {bEnd.getUTCHours().toString().padStart(2, "0")}:{bEnd.getUTCMinutes().toString().padStart(2, "0")}
-                                    </div>
-                                  </div>
-                                );
-                              })}
+                              }}
+                              style={{
+                                top: `${top}px`,
+                                height: `${height}px`,
+                                background: bgColor,
+                                borderColor: accentColor,
+                                borderStyle: statusBorder,
+                                opacity: opacity,
+                              }}
+                            >
+                              <div style={{ fontWeight: 600, textOverflow: "ellipsis", overflow: "hidden", whiteSpace: "nowrap" }}>
+                                {block.name}
+                              </div>
+                              <div style={{ fontSize: "0.65rem", opacity: 0.8 }}>
+                                {bStart.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" })} - {bEnd.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" })}
+                              </div>
                             </div>
                           );
                         })}
@@ -857,6 +903,7 @@ export default function Dashboard() {
               <label htmlFor="agentProvider">AI Agent Provider</label>
               <select name="agentProvider" id="agentProvider" defaultValue={settings.agentProvider}>
                 <option value="openrouter">OpenRouter</option>
+                <option value="claude">Claude (Anthropic API)</option>
                 <option value="agy">Antigravity CLI (agy)</option>
                 <option value="fake">Fake (Mock tests)</option>
               </select>
@@ -870,30 +917,35 @@ export default function Dashboard() {
           <div style={{ display: "flex", flexDirection: "column", gap: 12, marginBottom: 24 }}>
             {["mon", "tue", "wed", "thu", "fri", "sat", "sun"].map(day => {
               const windows = JSON.parse(settings.dayWindows || "{}");
-              const currentWindow = windows[day] || { wakeMin: 420, sleepMin: 1380, workStartMin: 540, workEndMin: 1020 };
+              const currentWindow = windows[day] || {
+                wakeTime: "06:00",
+                sleepTime: "22:00",
+                workStartTime: "08:00",
+                workEndTime: "17:00",
+              };
 
               return (
                 <div key={day} style={{ display: "grid", gridTemplateColumns: "80px 1fr 1fr 1fr 1fr", gap: 12, alignItems: "center" }}>
                   <div style={{ fontWeight: 600, textTransform: "capitalize" }}>{day}</div>
 
                   <div>
-                    <label style={{ fontSize: "0.7rem", marginBottom: 2 }}>Wake (Min)</label>
-                    <input type="number" name={`${day}-wakeMin`} defaultValue={currentWindow.wakeMin} min={0} max={1440} />
+                    <label style={{ fontSize: "0.7rem", marginBottom: 2 }}>Wake</label>
+                    <input type="time" name={`${day}-wakeTime`} defaultValue={currentWindow.wakeTime || "06:00"} />
                   </div>
 
                   <div>
-                    <label style={{ fontSize: "0.7rem", marginBottom: 2 }}>Sleep (Min)</label>
-                    <input type="number" name={`${day}-sleepMin`} defaultValue={currentWindow.sleepMin} min={0} max={1440} />
+                    <label style={{ fontSize: "0.7rem", marginBottom: 2 }}>Sleep</label>
+                    <input type="time" name={`${day}-sleepTime`} defaultValue={currentWindow.sleepTime || "22:00"} />
                   </div>
 
                   <div>
-                    <label style={{ fontSize: "0.7rem", marginBottom: 2 }}>Work Start (Min)</label>
-                    <input type="number" name={`${day}-workStartMin`} defaultValue={currentWindow.workStartMin} min={0} max={1440} />
+                    <label style={{ fontSize: "0.7rem", marginBottom: 2 }}>Work Start</label>
+                    <input type="time" name={`${day}-workStartTime`} defaultValue={currentWindow.workStartTime || "08:00"} />
                   </div>
 
                   <div>
-                    <label style={{ fontSize: "0.7rem", marginBottom: 2 }}>Work End (Min)</label>
-                    <input type="number" name={`${day}-workEndMin`} defaultValue={currentWindow.workEndMin} min={0} max={1440} />
+                    <label style={{ fontSize: "0.7rem", marginBottom: 2 }}>Work End</label>
+                    <input type="time" name={`${day}-workEndTime`} defaultValue={currentWindow.workEndTime || "17:00"} />
                   </div>
                 </div>
               );
@@ -1198,47 +1250,49 @@ export default function Dashboard() {
               <div>Status: <strong style={{ color: "#fff", textTransform: "capitalize" }}>{selectedBlock.status}</strong></div>
             </div>
 
-            <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-              <label>Update Status</label>
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
-                <button
-                  type="button"
-                  disabled={actionLoading}
-                  onClick={() => updateBlockStatus("done")}
-                  className="btn btn-primary"
-                  style={{ background: "var(--accent-green)", boxShadow: "none", fontSize: "0.85rem" }}
-                >
-                  Mark Done
-                </button>
-                <button
-                  type="button"
-                  disabled={actionLoading}
-                  onClick={() => updateBlockStatus("skipped")}
-                  className="btn btn-danger"
-                  style={{ background: "rgba(239, 68, 68, 0.2)", color: "var(--accent-red)", border: "1px solid rgba(239, 68, 68, 0.4)", boxShadow: "none", fontSize: "0.85rem" }}
-                >
-                  Mark Skipped
-                </button>
-                <button
-                  type="button"
-                  disabled={actionLoading}
-                  onClick={() => updateBlockStatus("partial")}
-                  className="btn btn-secondary"
-                  style={{ fontSize: "0.85rem" }}
-                >
-                  Mark Partial
-                </button>
-                <button
-                  type="button"
-                  disabled={actionLoading}
-                  onClick={() => updateBlockStatus("planned")}
-                  className="btn btn-secondary"
-                  style={{ fontSize: "0.85rem" }}
-                >
-                  Reset Planned
-                </button>
+            {selectedBlock.type !== "external" && (
+              <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                <label>Update Status</label>
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+                  <button
+                    type="button"
+                    disabled={actionLoading}
+                    onClick={() => updateBlockStatus("done")}
+                    className="btn btn-primary"
+                    style={{ background: "var(--accent-green)", boxShadow: "none", fontSize: "0.85rem" }}
+                  >
+                    Mark Done
+                  </button>
+                  <button
+                    type="button"
+                    disabled={actionLoading}
+                    onClick={() => updateBlockStatus("skipped")}
+                    className="btn btn-danger"
+                    style={{ background: "rgba(239, 68, 68, 0.2)", color: "var(--accent-red)", border: "1px solid rgba(239, 68, 68, 0.4)", boxShadow: "none", fontSize: "0.85rem" }}
+                  >
+                    Mark Skipped
+                  </button>
+                  <button
+                    type="button"
+                    disabled={actionLoading}
+                    onClick={() => updateBlockStatus("partial")}
+                    className="btn btn-secondary"
+                    style={{ fontSize: "0.85rem" }}
+                  >
+                    Mark Partial
+                  </button>
+                  <button
+                    type="button"
+                    disabled={actionLoading}
+                    onClick={() => updateBlockStatus("planned")}
+                    className="btn btn-secondary"
+                    style={{ fontSize: "0.85rem" }}
+                  >
+                    Reset Planned
+                  </button>
+                </div>
               </div>
-            </div>
+            )}
 
             <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 20 }}>
               <button type="button" onClick={() => blockModalRef.current?.close()} className="btn btn-secondary">

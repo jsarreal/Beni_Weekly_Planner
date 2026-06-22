@@ -1,8 +1,8 @@
 export interface DayWindow {
-  wakeMin: number;
-  sleepMin: number;
-  workStartMin: number;
-  workEndMin: number;
+  wakeTime: string;      // "HH:MM"
+  sleepTime: string;     // "HH:MM"
+  workStartTime: string; // "HH:MM"
+  workEndTime: string;   // "HH:MM"
 }
 
 export interface PlanConstraints {
@@ -55,10 +55,63 @@ interface TimeRange {
   end: Date;
 }
 
-function getDayOfWeekStr(date: Date): string {
-  const dayIndex = date.getUTCDay(); // 0 is Sunday, 1 is Monday
-  const mapping = ["sun", "mon", "tue", "wed", "thu", "fri", "sat"];
-  return mapping[dayIndex];
+function timeToMin(timeStr: string): number {
+  const [hours, minutes] = timeStr.split(":").map(Number);
+  return hours * 60 + minutes;
+}
+
+function getTimezoneOffsetMin(date: Date, timeZone: string): number {
+  const formatter = new Intl.DateTimeFormat("en-US", {
+    timeZone,
+    year: "numeric",
+    month: "numeric",
+    day: "numeric",
+    hour: "numeric",
+    minute: "numeric",
+    second: "numeric",
+    hour12: false,
+  });
+  const parts = formatter.formatToParts(date);
+  const getVal = (t: string) => {
+    const val = parts.find(p => p.type === t)?.value;
+    return val ? parseInt(val, 10) : 0;
+  };
+  const hour = getVal("hour");
+  const localUtc = Date.UTC(
+    getVal("year"),
+    getVal("month") - 1,
+    getVal("day"),
+    hour === 24 ? 0 : hour,
+    getVal("minute"),
+    getVal("second")
+  );
+  return Math.round((date.getTime() - localUtc) / 60000);
+}
+
+function createLocalDate(dayStr: string, minutesFromMidnight: number, timeZone: string): Date {
+  const baseUtc = new Date(`${dayStr}T00:00:00Z`);
+  const candidate = new Date(baseUtc.getTime() + minutesFromMidnight * 60 * 1000);
+  const offset = getTimezoneOffsetMin(candidate, timeZone);
+  return new Date(candidate.getTime() + offset * 60 * 1000);
+}
+
+function getLocalDayOfWeekStr(date: Date, timeZone: string): string {
+  const formatter = new Intl.DateTimeFormat("en-US", { timeZone, weekday: "short" });
+  return formatter.format(date).toLowerCase();
+}
+
+function getLocalDateStr(date: Date, timeZone: string): string {
+  const formatter = new Intl.DateTimeFormat("en-US", {
+    timeZone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  });
+  const parts = formatter.formatToParts(date);
+  const y = parts.find(p => p.type === "year")!.value;
+  const m = parts.find(p => p.type === "month")!.value;
+  const d = parts.find(p => p.type === "day")!.value;
+  return `${y}-${m}-${d}`;
 }
 
 function isOverlap(r1: TimeRange, r2: TimeRange, bufferMin = 0): boolean {
@@ -100,12 +153,21 @@ export function plan(
 
   let currentDay = new Date(window.start);
   while (currentDay < window.end) {
-    const dayStr = getDayOfWeekStr(currentDay);
-    const dayWin = constraints.dayWindows[dayStr] || { wakeMin: 420, sleepMin: 1320 };
+    const dayStr = getLocalDateStr(currentDay, constraints.timeZone);
+    const dayOfWeek = getLocalDayOfWeekStr(currentDay, constraints.timeZone);
+    const dayWin = constraints.dayWindows[dayOfWeek] || {
+      wakeTime: "06:00",
+      sleepTime: "22:00",
+      workStartTime: "08:00",
+      workEndTime: "17:00",
+    };
 
-    // Sleep interval is from sleepMin of current day to wakeMin of next day
-    const sleepStart = addMinutes(new Date(currentDay.toISOString().split("T")[0] + "T00:00:00Z"), dayWin.sleepMin);
-    const sleepEnd = addMinutes(new Date(currentDay.toISOString().split("T")[0] + "T00:00:00Z"), 24 * 60 + dayWin.wakeMin);
+    const nextDay = addMinutes(currentDay, 24 * 60);
+    const nextDayStr = getLocalDateStr(nextDay, constraints.timeZone);
+
+    // Sleep interval is from sleepTime of current day to wakeTime of next day
+    const sleepStart = createLocalDate(dayStr, timeToMin(dayWin.sleepTime), constraints.timeZone);
+    const sleepEnd = createLocalDate(nextDayStr, timeToMin(dayWin.wakeTime), constraints.timeZone);
 
     if (hasSleepHabit) {
       const block: PlannedBlock = {
@@ -138,7 +200,7 @@ export function plan(
     let daysToSchedule: Date[] = [];
     let dayCursor = new Date(window.start);
     while (dayCursor < window.end) {
-      const dayStr = getDayOfWeekStr(dayCursor);
+      const dayStr = getLocalDayOfWeekStr(dayCursor, constraints.timeZone);
       if (fixedDays.length === 0 || fixedDays.includes(dayStr)) {
         daysToSchedule.push(new Date(dayCursor));
       }
@@ -152,26 +214,34 @@ export function plan(
     }
 
     for (const day of daysToSchedule) {
-      const dayStr = getDayOfWeekStr(day);
-      const dayWin = constraints.dayWindows[dayStr] || { wakeMin: 420, sleepMin: 1320 };
+      const dayStr = getLocalDateStr(day, constraints.timeZone);
+      const dayOfWeek = getLocalDayOfWeekStr(day, constraints.timeZone);
+      const dayWin = constraints.dayWindows[dayOfWeek] || {
+        wakeTime: "06:00",
+        sleepTime: "22:00",
+        workStartTime: "08:00",
+        workEndTime: "17:00",
+      };
+
+      const wakeMin = timeToMin(dayWin.wakeTime);
+      const sleepMin = timeToMin(dayWin.sleepTime);
 
       // Calculate candidate window based on preference
-      let prefStartMin = dayWin.wakeMin;
-      let prefEndMin = dayWin.sleepMin;
-      const awakeSpan = dayWin.sleepMin - dayWin.wakeMin;
+      let prefStartMin = wakeMin;
+      let prefEndMin = sleepMin;
+      const awakeSpan = sleepMin - wakeMin;
 
       if (habit.timeOfDay === "morning") {
-        prefEndMin = dayWin.wakeMin + awakeSpan / 3;
+        prefEndMin = wakeMin + awakeSpan / 3;
       } else if (habit.timeOfDay === "afternoon") {
-        prefStartMin = dayWin.wakeMin + awakeSpan / 3;
-        prefEndMin = dayWin.wakeMin + (2 * awakeSpan) / 3;
+        prefStartMin = wakeMin + awakeSpan / 3;
+        prefEndMin = wakeMin + (2 * awakeSpan) / 3;
       } else if (habit.timeOfDay === "evening") {
-        prefStartMin = dayWin.wakeMin + (2 * awakeSpan) / 3;
+        prefStartMin = wakeMin + (2 * awakeSpan) / 3;
       }
 
-      const baseDayIso = day.toISOString().split("T")[0];
-      const startLimit = addMinutes(new Date(baseDayIso + "T00:00:00Z"), prefStartMin);
-      const endLimit = addMinutes(new Date(baseDayIso + "T00:00:00Z"), prefEndMin);
+      const startLimit = createLocalDate(dayStr, prefStartMin, constraints.timeZone);
+      const endLimit = createLocalDate(dayStr, prefEndMin, constraints.timeZone);
 
       // Search for first free slot of size `duration`
       let slotCursor = new Date(startLimit);
@@ -201,7 +271,7 @@ export function plan(
     }
   }
 
-  // 5. Place Goals (Working backwards from deadline)
+  // 5. Place Goals (Distributed evenly across the timeline)
   const goals = items.filter(i => i.type === "goal").sort((a, b) => a.priority - b.priority);
   for (const goal of goals) {
     const totalNeeded = (goal.totalEffortMin || 0) - (goal.completedMin || 0);
@@ -212,79 +282,122 @@ export function plan(
     const sessionMin = goal.sessionMinMin || 30;
     const sessionMax = goal.sessionMaxMin || 120;
 
+    // A. Collect all eligible work days from earliestStart to deadline
+    const eligibleDays: Date[] = [];
+    let dayCursor = new Date(earliestStart);
+    // Align dayCursor to local midnight of the start day
+    const startDayStr = getLocalDateStr(dayCursor, constraints.timeZone);
+    dayCursor = createLocalDate(startDayStr, 0, constraints.timeZone);
+
+    while (dayCursor <= deadline) {
+      const dayOfWeek = getLocalDayOfWeekStr(dayCursor, constraints.timeZone);
+      const dayWin = constraints.dayWindows[dayOfWeek];
+      if (dayWin && (timeToMin(dayWin.workStartTime) !== 0 || timeToMin(dayWin.workEndTime) !== 0)) {
+        eligibleDays.push(new Date(dayCursor));
+      }
+      dayCursor = addMinutes(dayCursor, 24 * 60);
+    }
+
+    // If no eligible days found, fallback to all days in the window
+    if (eligibleDays.length === 0) {
+      let fallbackCursor = new Date(earliestStart);
+      while (fallbackCursor <= deadline) {
+        eligibleDays.push(new Date(fallbackCursor));
+        fallbackCursor = addMinutes(fallbackCursor, 24 * 60);
+      }
+    }
+
     let remainingEffort = totalNeeded;
 
-    // We search day-by-day backwards from deadline
-    let dayCursor = new Date(deadline);
-    // Align dayCursor to the beginning of the day (UTC)
-    dayCursor = new Date(dayCursor.toISOString().split("T")[0] + "T00:00:00Z");
+    // B. Distribute remainingEffort across the eligibleDays
+    for (let d = 0; d < eligibleDays.length && remainingEffort > 0; d++) {
+      const day = eligibleDays[d];
+      const dayOfWeek = getLocalDayOfWeekStr(day, constraints.timeZone);
+      const dayStr = getLocalDateStr(day, constraints.timeZone);
+      const dayWin = constraints.dayWindows[dayOfWeek] || {
+        wakeTime: "06:00",
+        sleepTime: "22:00",
+        workStartTime: "08:00",
+        workEndTime: "17:00",
+      };
 
-    while (dayCursor >= earliestStart && remainingEffort > 0) {
-      const dayStr = getDayOfWeekStr(dayCursor);
-      const dayWin = constraints.dayWindows[dayStr];
-      if (!dayWin || dayWin.workStartMin === 0 && dayWin.workEndMin === 0) {
-        // No work on this day
-        dayCursor = addMinutes(dayCursor, -24 * 60);
-        continue;
+      const workStartMin = timeToMin(dayWin.workStartTime);
+      const workEndMin = timeToMin(dayWin.workEndTime);
+
+      // Target effort for this day is the remaining effort divided by remaining days
+      const remainingDays = eligibleDays.length - d;
+      let dayTargetEffort = Math.ceil(remainingEffort / remainingDays);
+      
+      // Cap the day's target by constraints.maxGoalHoursPerDay
+      dayTargetEffort = Math.min(dayTargetEffort, constraints.maxGoalHoursPerDay * 60);
+
+      // Calculate candidate work window
+      const workStart = createLocalDate(dayStr, workStartMin, constraints.timeZone);
+      let workEnd = createLocalDate(dayStr, workEndMin, constraints.timeZone);
+      if (workEnd > deadline) {
+        workEnd = deadline;
       }
 
-      // Check daily cap
+      // Schedule sessions within this day's work window
+      let slotCursor = new Date(workStart);
       let scheduledGoalHoursToday = 0;
-      const baseDayIso = dayCursor.toISOString().split("T")[0];
-      const workStart = addMinutes(new Date(baseDayIso + "T00:00:00Z"), dayWin.workStartMin);
-      const workEnd = addMinutes(new Date(baseDayIso + "T00:00:00Z"), dayWin.workEndMin);
 
-      // Search backwards within working hours
-      let slotCursor = new Date(workEnd);
-      while (slotCursor >= workStart && remainingEffort > 0) {
-        const potentialSessionMin = Math.min(sessionMax, remainingEffort);
-        if (potentialSessionMin < sessionMin && remainingEffort >= sessionMin) {
-          // If we can't fit at least sessionMin, skip
+      while (slotCursor < workEnd && dayTargetEffort > 0 && remainingEffort > 0) {
+        const potentialSessionMin = Math.min(sessionMax, dayTargetEffort, remainingEffort);
+        if (potentialSessionMin < sessionMin) {
+          // If we can't fit at least sessionMin, we can't schedule any more today
           break;
         }
         const sessionLen = Math.max(sessionMin, potentialSessionMin);
 
-        // Verify if we can schedule a session of sessionLen ending at slotCursor
-        const candidateStart = addMinutes(slotCursor, -sessionLen);
-        if (candidateStart < workStart || candidateStart < earliestStart) {
-          slotCursor = addMinutes(slotCursor, -15);
-          continue;
-        }
-
-        // Daily cap enforcement
+        // Daily cap check
         const hoursNeeded = sessionLen / 60;
         if (scheduledGoalHoursToday + hoursNeeded > constraints.maxGoalHoursPerDay) {
-          slotCursor = addMinutes(slotCursor, -15);
-          continue;
+          break;
         }
 
-        const candidate = { start: candidateStart, end: slotCursor };
-        const conflicted = busyRanges.some(b => isOverlap(candidate, b, constraints.bufferMin)) ||
+        const candidateEnd = addMinutes(slotCursor, sessionLen);
+        if (candidateEnd > workEnd || candidateEnd > deadline) {
+          break;
+        }
+
+        const candidate = { start: slotCursor, end: candidateEnd };
+        const inWindow = candidate.start >= window.start && candidate.end <= window.end;
+
+        if (inWindow) {
+          const conflicted = busyRanges.some(b => isOverlap(candidate, b, constraints.bufferMin)) ||
                              resultBlocks.some(b => isOverlap(candidate, b, constraints.bufferMin));
 
-        if (!conflicted) {
-          const block: PlannedBlock = {
-            name: goal.name,
-            start: candidate.start,
-            end: candidate.end,
-            status: "planned",
-            source: "planner",
-            goalId: goal.id,
-          };
-          resultBlocks.push(block);
-          busyRanges.push(candidate);
-          busyRanges.sort((a, b) => a.start.getTime() - b.start.getTime());
-          remainingEffort -= sessionLen;
-          scheduledGoalHoursToday += hoursNeeded;
-          
-          // Move cursor to before the newly placed session
-          slotCursor = addMinutes(candidate.start, -constraints.bufferMin);
+          if (!conflicted) {
+            const block: PlannedBlock = {
+              name: goal.name,
+              start: candidate.start,
+              end: candidate.end,
+              status: "planned",
+              source: "planner",
+              goalId: goal.id,
+            };
+            resultBlocks.push(block);
+            busyRanges.push(candidate);
+            busyRanges.sort((a, b) => a.start.getTime() - b.start.getTime());
+            remainingEffort -= sessionLen;
+            dayTargetEffort -= sessionLen;
+            scheduledGoalHoursToday += hoursNeeded;
+            
+            // Move cursor to after this session plus buffer
+            slotCursor = addMinutes(candidate.end, constraints.bufferMin);
+          } else {
+            // Step by 15 mins to find next slot
+            slotCursor = addMinutes(slotCursor, 15);
+          }
         } else {
-          slotCursor = addMinutes(slotCursor, -15);
+          // If outside the rolling planning window, simulate placement
+          remainingEffort -= sessionLen;
+          dayTargetEffort -= sessionLen;
+          scheduledGoalHoursToday += hoursNeeded;
+          slotCursor = addMinutes(candidate.end, constraints.bufferMin);
         }
       }
-
-      dayCursor = addMinutes(dayCursor, -24 * 60);
     }
   }
 

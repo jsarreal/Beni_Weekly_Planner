@@ -4,11 +4,11 @@
   "private": true,
   "scripts": {
     "dev": "node scripts/prepare-db.js && next dev",
-    "build": "node scripts/prepare-db.js && next build",
+    "build": "node scripts/prepare-db.js && prisma generate && next build",
     "start": "next start",
     "lint": "eslint",
-    "test": "node scripts/prepare-db.js && vitest run",
-    "test:watch": "node scripts/prepare-db.js && vitest",
+    "test": "node scripts/prepare-db.js && vitest run --no-file-parallelism",
+    "test:watch": "node scripts/prepare-db.js && vitest --no-file-parallelism",
     "postinstall": "node scripts/prepare-db.js && prisma generate"
   },
   "dependencies": {

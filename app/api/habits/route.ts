@@ -28,7 +28,11 @@ export async function POST(req: Request) {
     });
 
     // Run scheduler to update calendar
-    await runScheduling();
+    try {
+      await runScheduling();
+    } catch (schedErr) {
+      console.error("[POST Habit Route] Scheduling update failed:", schedErr);
+    }
 
     return NextResponse.json(habit, { status: 201 });
   } catch (err: any) {

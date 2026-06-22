@@ -30,7 +30,11 @@ export async function POST(req: Request) {
     });
 
     // Run scheduler to update calendar
-    await runScheduling();
+    try {
+      await runScheduling();
+    } catch (schedErr) {
+      console.error("[POST Goal Route] Scheduling update failed:", schedErr);
+    }
 
     return NextResponse.json(goal, { status: 201 });
   } catch (err: any) {

@@ -43,11 +43,25 @@ export async function getAuthedClient(): Promise<OAuth2Client> {
   const s = await getSettings();
   if (!s.googleRefresh) throw new Error("Google not connected");
   const c = client();
-  c.setCredentials({
-    refresh_token: decrypt(s.googleRefresh),
-    access_token: s.googleAccessTok ? decrypt(s.googleAccessTok) : undefined,
-    expiry_date: s.googleTokenExp ? s.googleTokenExp.getTime() : undefined,
-  });
+  try {
+    c.setCredentials({
+      refresh_token: decrypt(s.googleRefresh),
+      access_token: s.googleAccessTok ? decrypt(s.googleAccessTok) : undefined,
+      expiry_date: s.googleTokenExp ? s.googleTokenExp.getTime() : undefined,
+    });
+  } catch (err) {
+    console.error("[getAuthedClient] Failed to decrypt Google tokens. Clearing credentials to recover.", err);
+    await prisma.settings.update({
+      where: { id: 1 },
+      data: {
+        googleRefresh: null,
+        googleAccessTok: null,
+        googleTokenExp: null,
+        googleSyncToken: null,
+      },
+    });
+    throw new Error("Google not connected");
+  }
   // Persist refreshed access tokens transparently (real OAuth2Client is an EventEmitter).
   if (typeof c.on === "function") {
     c.on("tokens", async (t) => {

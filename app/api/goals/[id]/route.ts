@@ -18,7 +18,11 @@ export async function PUT(
     });
 
     // Run scheduler to update calendar
-    await runScheduling();
+    try {
+      await runScheduling();
+    } catch (schedErr) {
+      console.error("[PUT Goal Route] Scheduling update failed:", schedErr);
+    }
 
     return NextResponse.json(goal);
   } catch (err: any) {
@@ -38,7 +42,11 @@ export async function DELETE(
     });
 
     // Run scheduler to update calendar
-    await runScheduling();
+    try {
+      await runScheduling();
+    } catch (schedErr) {
+      console.error("[DELETE Goal Route] Scheduling update failed:", schedErr);
+    }
 
     return NextResponse.json({ success: true });
   } catch (err: any) {

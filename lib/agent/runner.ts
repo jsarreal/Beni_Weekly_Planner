@@ -141,6 +141,50 @@ export class AgyRunner implements AgentRunner {
   }
 }
 
+export class ClaudeRunner implements AgentRunner {
+  async runReview(input: ReviewInput): Promise<ReviewResult> {
+    const apiKey = process.env.ANTHROPIC_API_KEY || "";
+    if (!apiKey) {
+      throw new Error("Anthropic API key is not configured. Please set ANTHROPIC_API_KEY in your environment.");
+    }
+    const model = process.env.ANTHROPIC_MODEL || "claude-3-5-sonnet-latest";
+
+    const prompt = constructPrompt(input);
+
+    const res = await fetch("https://api.anthropic.com/v1/messages", {
+      method: "POST",
+      headers: {
+        "x-api-key": apiKey,
+        "anthropic-version": "2023-06-01",
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        model,
+        max_tokens: 4000,
+        messages: [
+          { role: "user", content: prompt }
+        ],
+        system: "You are Beni's daily calendar and coaching agent. You output JSON only."
+      }),
+    });
+
+    if (!res.ok) {
+      throw new Error(`Anthropic API failed with status ${res.status}: ${await res.text()}`);
+    }
+
+    const data = await res.json();
+    const text = data.content[0].text;
+    
+    // Safety check for parsing JSON
+    const jsonStart = text.indexOf("{");
+    const jsonEnd = text.lastIndexOf("}");
+    if (jsonStart === -1 || jsonEnd === -1) {
+      throw new Error(`Failed to extract JSON from Anthropic output: ${text}`);
+    }
+    return JSON.parse(text.substring(jsonStart, jsonEnd + 1));
+  }
+}
+
 export function getAgentRunner(provider: string): AgentRunner {
   const prov = provider.toLowerCase();
   if (prov === "fake") {
@@ -148,6 +192,9 @@ export function getAgentRunner(provider: string): AgentRunner {
   }
   if (prov === "agy") {
     return new AgyRunner();
+  }
+  if (prov === "claude" || prov === "anthropic") {
+    return new ClaudeRunner();
   }
   return new OpenRouterRunner();
 }

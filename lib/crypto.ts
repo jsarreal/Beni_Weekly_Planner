@@ -17,7 +17,14 @@ export function encrypt(plain: string): string {
 }
 
 export function decrypt(blob: string): string {
-  const [ivB64, tagB64, ctB64] = blob.split(":");
+  if (!blob) {
+    throw new Error("Decrypt received empty or null string");
+  }
+  const parts = blob.split(":");
+  if (parts.length !== 3) {
+    throw new Error("Invalid encrypted blob format: must contain three parts separated by colons");
+  }
+  const [ivB64, tagB64, ctB64] = parts;
   const decipher = createDecipheriv("aes-256-gcm", key(), Buffer.from(ivB64, "base64"));
   decipher.setAuthTag(Buffer.from(tagB64, "base64"));
   return Buffer.concat([decipher.update(Buffer.from(ctB64, "base64")), decipher.final()]).toString("utf8");

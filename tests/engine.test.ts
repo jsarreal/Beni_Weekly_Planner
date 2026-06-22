@@ -3,10 +3,10 @@ import { plan, PlanItem, PlanConstraints, CalendarEvent } from "../lib/engine";
 
 describe("Scheduling Engine", () => {
   const defaultDayWindow = {
-    wakeMin: 420,       // 07:00
-    sleepMin: 1320,     // 22:00
-    workStartMin: 540,  // 09:00
-    workEndMin: 1020,   // 17:00
+    wakeTime: "07:00",
+    sleepTime: "22:00",
+    workStartTime: "09:00",
+    workEndTime: "17:00",
   };
 
   const constraints: PlanConstraints = {
@@ -17,8 +17,8 @@ describe("Scheduling Engine", () => {
       wed: defaultDayWindow,
       thu: defaultDayWindow,
       fri: defaultDayWindow,
-      sat: { ...defaultDayWindow, workStartMin: 0, workEndMin: 0 }, // no work on weekends
-      sun: { ...defaultDayWindow, workStartMin: 0, workEndMin: 0 },
+      sat: { ...defaultDayWindow, workStartTime: "00:00", workEndTime: "00:00" }, // no work on weekends
+      sun: { ...defaultDayWindow, workStartTime: "00:00", workEndTime: "00:00" },
     },
     blackoutDays: [],
     bufferMin: 15,
@@ -45,11 +45,15 @@ describe("Scheduling Engine", () => {
     const sleepBlocks = blocks.filter(b => b.name === "Sleep");
     expect(sleepBlocks.length).toBeGreaterThanOrEqual(7);
 
-    // Verify first sleep block matches sleepMin to next day's wakeMin
-    // June 22 22:00 (1320 min) to June 23 07:00 (420 min)
+    // Verify first sleep block (Sunday night local time: June 21 22:00 PDT -> June 22 05:00 UTC)
     const firstSleep = sleepBlocks[0];
-    expect(firstSleep.start.toISOString()).toContain("2026-06-22T22:00:00");
-    expect(firstSleep.end.toISOString()).toContain("2026-06-23T07:00:00");
+    expect(firstSleep.start.toISOString()).toContain("2026-06-22T05:00:00");
+    expect(firstSleep.end.toISOString()).toContain("2026-06-22T14:00:00");
+
+    // Verify Monday night sleep block (Monday night local time: June 22 22:00 PDT -> June 23 05:00 UTC)
+    const mondaySleep = sleepBlocks[1];
+    expect(mondaySleep.start.toISOString()).toContain("2026-06-23T05:00:00");
+    expect(mondaySleep.end.toISOString()).toContain("2026-06-23T14:00:00");
   });
 
   it("respects existing calendar events and avoids double-booking", () => {
@@ -143,6 +147,49 @@ describe("Scheduling Engine", () => {
 
     for (const day in dailyHours) {
       expect(dailyHours[day]).toBeLessThanOrEqual(constraints.maxGoalHoursPerDay);
+    }
+  });
+
+  it("enforces block durations corresponding to the attributes of habits and goals", () => {
+    const items: PlanItem[] = [
+      {
+        id: "habit-short",
+        name: "Prayer",
+        type: "habit",
+        priority: 1,
+        durationMin: 5,
+        perWeek: 1,
+        timeOfDay: "evening",
+      },
+      {
+        id: "goal-fixed",
+        name: "Learn TypeScript",
+        type: "goal",
+        priority: 2,
+        durationMin: 60,
+        totalEffortMin: 120,
+        completedMin: 0,
+        deadline: new Date("2026-06-26T17:00:00Z"),
+        earliestStart: new Date("2026-06-22T00:00:00Z"),
+        sessionMinMin: 60,
+        sessionMaxMin: 60,
+      }
+    ];
+
+    const blocks = plan(items, constraints, [], planningWindow);
+    
+    // Check Prayer habit blocks
+    const prayerBlocks = blocks.filter(b => b.name === "Prayer");
+    expect(prayerBlocks.length).toBe(1);
+    const prayerDuration = (prayerBlocks[0].end.getTime() - prayerBlocks[0].start.getTime()) / 60000;
+    expect(prayerDuration).toBe(5); // must be exactly 5 minutes!
+
+    // Check Goal blocks
+    const goalBlocks = blocks.filter(b => b.name === "Learn TypeScript");
+    expect(goalBlocks.length).toBe(2); // 120 total / 60 per session = 2 sessions
+    for (const block of goalBlocks) {
+      const duration = (block.end.getTime() - block.start.getTime()) / 60000;
+      expect(duration).toBe(60); // session length must be exactly 60 minutes!
     }
   });
 });

@@ -36,6 +36,8 @@ yarn-error.log*
 
 # local SQLite database
 dev.db
+test.db
+*.db
 
 # scratch / tooling
 .superpowers/
