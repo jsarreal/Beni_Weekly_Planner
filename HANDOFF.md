@@ -1,96 +1,83 @@
-# Beni's Weekly Planner — Session Handoff
+# Beni's Weekly Planner — Handoff
 
 **Last updated:** 2026-06-22
 **Branch:** `main`
 **Status:** 
-- Phase 1 (Foundations) + Supabase/Postgres Configuration merged into `main` and verified.
-- Phase 2 (Scheduling Engine & Google Calendar Write) merged into `main` and verified.
-- Phase 3 (Habit/Goal management UI + weekly view) is COMPLETE and verified on `main` branch (33/33 tests passing, `tsc --noEmit` clean).
-- Phases 4–5 not started.
-
+- All 5 Phases of the implementation plan are **COMPLETE**, verified, and merged into `main`.
+- 39/39 tests across 14 test files are passing successfully.
+- `npx tsc --noEmit` type-checks clean.
 
 ---
 
-## 1. The Goal
+## 1. Project Overview
 
-Build a **hosted web app** (single user — the owner, john.sarreal@gmail.com) that connects to Google Calendar and **auto-schedules time blocks** to accomplish recurring **habits** and deadline-driven **goals**. It continuously re-plans as the calendar changes, and a daily **LLM agent** reviews progress, emails + shows an in-app summary, and reprioritizes/reschedules upcoming days.
-
-**Read these two documents first — they are the source of truth:**
-- Design spec: `docs/superpowers/specs/2026-06-21-weekly-planner-design.md`
-- Phase 1 plan: `docs/superpowers/plans/2026-06-21-phase1-foundations.md`
-
----
-
-## 2. Confirmed Product Decisions (do NOT re-litigate)
-
-| Decision | Choice |
-|---|---|
-| Platform | Hosted web app, single user |
-| Database | **SQLite** for local dev/test; **Supabase (PostgreSQL)** for production. |
-| Calendar write target | **Primary** Google Calendar (planner events tagged via extended property `private.beniPlanner="1"` so the app only ever touches its own events) |
-| Item types | **Habits** = recurring (freq + duration; sleep is a special habit type). **Goals** = projects with deadline + total effort, split into sessions |
-| Scheduling | **Auto-schedule** (writes blocks directly), hands-off |
-| Constraints | sleep/wake blocks, awake/working hours (per-day), avoid existing events, per-item time-of-day prefs |
-| Re-plan cadence | **Continuous** (watch calendar, re-plan on change) |
-| Scheduling brain | **Approach A**: deterministic engine in code + LLM only as advisor for the daily review |
-| Daily review delivery | **Email + in-app** |
-| Progress input | Inferred from calendar **+** user corrections |
-| Daily agent | **LLM-agnostic** runner — OpenRouter + agy + fake |
+Beni's Weekly Planner is a single-user hosted web app designed to auto-schedule habits (recurring tasks) and goals (deadline-driven projects split into sessions) directly on the user's primary Google Calendar. 
+It features:
+- A deterministic calendar scheduler engine prioritizing habits and goals.
+- Incremental syncing that replans when calendar events change.
+- A daily LLM agent (coaching advisor) that reviews progress, logs completions, updates goal priority/completed progress in the DB, and emails recaps via the user's Gmail.
+- A modern dark-mode responsive glassmorphic dashboard.
 
 ---
 
-## 3. Tech Stack & Key Engineering Decisions
-
-- **Next.js 15 (App Router) + TypeScript (strict)**, deployable on Vercel.
-- **Vitest** for tests. TDD throughout.
-- **Prisma ORM, v7**:
-  - v7 PrismaClient **uses driver adapters**. 
-  - Dynamic Client Ingestion: `lib/db.ts` dynamically requires and loads either `@prisma/adapter-better-sqlite3` (for SQLite) or `@prisma/adapter-pg` (for PostgreSQL/Supabase) depending on the environment's `DATABASE_URL` protocol.
-  - A build-time script (`scripts/prepare-db.js`) automatically rewrites the datasource provider in `prisma/schema.prisma` before generating the client.
-- **Token security**: Google OAuth tokens are AES-256-GCM encrypted at rest (`lib/crypto.ts`, key from `APP_ENCRYPTION_KEY`).
-
----
-
-## 4. What Exists (Phase 1 & 2 Complete)
+## 2. Project Structure
 
 ```
-scripts/prepare-db.js                  Build-time script to set schema.prisma provider
-app/api/auth/google/route.ts            GET → 302 to Google consent
-app/api/auth/google/callback/route.ts   GET → exchange code → 302 /?connected=1
-app/api/settings/route.ts               GET/PUT settings (tokens stripped)
-app/page.tsx                            minimal home: connection status + oauth link
-lib/db.ts                               Prisma v7 singleton with dynamic adapter switcher
-lib/settings.ts                         getSettings()/updateSettings()
-lib/validation.ts                       Zod schemas
-lib/crypto.ts                           encrypt()/decrypt() AES-256-GCM
-lib/engine.ts                           Deterministic scheduling engine (TDD verified)
-lib/reconcile.ts                        Delta reconciliation engine (prevents calendar churn)
-lib/google/oauth.ts                     Google OAuth client with token refresh
-lib/google/calendar.ts                  Calendar v3 client filtering by private tags
-prisma/schema.prisma                    Database schema (Settings, Habit, Goal, Block, DailyReview)
-tests/*                                 29 tests across 10 files, all passing
+app/api/auth/google/route.ts            GET → Redirects to Google Consent Screen
+app/api/auth/google/callback/route.ts   GET → Code exchange, encrypts and stores refresh tokens
+app/api/settings/route.ts               GET/PUT settings (re-plans on save)
+app/api/habits/route.ts                  GET/POST CRUD habits (re-plans on create)
+app/api/habits/[id]/route.ts            PUT/DELETE CRUD habits (re-plans on change)
+app/api/goals/route.ts                  GET/POST CRUD goals (re-plans on create)
+app/api/goals/[id]/route.ts             PUT/DELETE CRUD goals (re-plans on change)
+app/api/blocks/route.ts                 GET calendar blocks for range queries
+app/api/blocks/[id]/route.ts            PUT to manually toggle status (done, skipped, etc.)
+app/api/reviews/route.ts                GET all daily reviews
+app/api/reviews/[id]/route.ts           PUT to update user coaching feedback
+app/api/schedule/route.ts               POST to manually trigger a re-plan run
+app/api/sync/route.ts                   GET/POST to run incremental calendar sync
+app/api/cron/daily-review/route.ts      GET/POST to trigger daily coaching review
+app/page.tsx                            Sleek dashboard UI (Calendar, Habits, Goals, Reviews, Settings)
+lib/db.ts                               Prisma v7 dynamic SQLite/Postgres adapter
+lib/crypto.ts                           AES-256-GCM token encryption
+lib/settings.ts                         Settings service layer
+lib/engine.ts                           Deterministic scheduling logic
+lib/reconcile.ts                        Google calendar diff engine
+lib/scheduler.ts                        Orchestrates sync between planning engine, DB, and Google Calendar
+lib/sync.ts                             Incremental sync engine using syncToken and 410 fallbacks
+lib/agent/runner.ts                     Agent runner factory (Fake, Agy, OpenRouter) and prompt compiler
+lib/agent/review.ts                     Agent daily review coordinator (DB updates + Gmail dispatch)
+lib/google/oauth.ts                     OAuth connection and auto token refresh
+lib/google/calendar.ts                  Google Calendar API helpers
+lib/google/gmail.ts                     Gmail sender helper
+tests/*                                 39 tests across 14 test files, all passing
 ```
 
 ---
 
-## 5. How to Run / Verify
+## 3. Running & Verifying
 
+### Environment Setup
+Make sure the `.env` file contains your Google OAuth credentials and the encryption key:
+```
+DATABASE_URL="file:./dev.db"
+APP_ENCRYPTION_KEY="<32-byte-base64>"
+GOOGLE_CLIENT_ID="<your-google-client-id>"
+GOOGLE_CLIENT_SECRET="<your-google-client-secret>"
+GOOGLE_REDIRECT_URI="http://localhost:3000/api/auth/google/callback"
+APP_BASE_URL="http://localhost:3000"
+
+# Daily review agent config
+AGENT_PROVIDER="fake" # 'fake', 'agy', or 'openrouter'
+OPENROUTER_API_KEY="<your-openrouter-key-if-used>"
+```
+
+### Commands
 ```bash
-cd "/Users/johnsarreal/Beni's Weekly Planner"
-# Ensure .env is populated (see .env.example)
 npm install
-npm test            # expect: 10 files, 29 tests passing
-npx tsc --noEmit    # expect: no errors
-npm run dev         # runs local Next.js dev server with sqlite
+npm test            # Runs all 39 tests
+npx tsc --noEmit    # Verifies types compiles clean
+npm run dev         # Launches local development server at http://localhost:3000
 ```
 
----
-
-## 6. Next Steps (Phase 4)
-
-1. **Phase 4 — Continuous sync + reconcile**:
-   - Implement incremental synchronization using Google Calendar's `syncToken` to track when external changes occur on the primary calendar.
-   - Set up a background cron tick (every 15 min) or a trigger endpoint `/api/sync` that pulls changes.
-   - If user events changed within the 14-day window, re-run the scheduling engine and reconcile only the affected planner blocks.
-   - Implement a full resync fallback mechanism when the `syncToken` becomes invalid.
 
