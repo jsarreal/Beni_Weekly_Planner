@@ -1,11 +1,13 @@
 # Beni's Weekly Planner — Session Handoff
 
-**Last updated:** 2026-06-21
-**Branch:** `phase2-engine` (HEAD `8fb5d49`) — **pushed to origin, pending merge to `main`**
+**Last updated:** 2026-06-22
+**Branch:** `main`
 **Status:** 
 - Phase 1 (Foundations) + Supabase/Postgres Configuration merged into `main` and verified.
-- Phase 2 (Scheduling Engine & Google Calendar Write) is COMPLETE and verified on `phase2-engine` branch (29/29 tests passing, `tsc --noEmit` clean).
-- Phases 3–5 not started.
+- Phase 2 (Scheduling Engine & Google Calendar Write) merged into `main` and verified.
+- Phase 3 (Habit/Goal management UI + weekly view) is COMPLETE and verified on `main` branch (33/33 tests passing, `tsc --noEmit` clean).
+- Phases 4–5 not started.
+
 
 ---
 
@@ -84,9 +86,11 @@ npm run dev         # runs local Next.js dev server with sqlite
 
 ---
 
-## 6. Next Steps (Phase 3)
+## 6. Next Steps (Phase 4)
 
-1. **Merge Phase 2**: Merge `phase2-engine` into `main` locally once the code is reviewed.
-2. **Phase 3 — Habit/Goal management UI + weekly view**:
-   - Create React components and pages to CRUD Habits and Goals.
-   - Build a weekly calendar view displaying the scheduled blocks dynamically fetched from calendar/database.
+1. **Phase 4 — Continuous sync + reconcile**:
+   - Implement incremental synchronization using Google Calendar's `syncToken` to track when external changes occur on the primary calendar.
+   - Set up a background cron tick (every 15 min) or a trigger endpoint `/api/sync` that pulls changes.
+   - If user events changed within the 14-day window, re-run the scheduling engine and reconcile only the affected planner blocks.
+   - Implement a full resync fallback mechanism when the `syncToken` becomes invalid.
+
