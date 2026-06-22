@@ -49,11 +49,12 @@ interface Settings {
 }
 
 export default function Dashboard() {
-  const [activeTab, setActiveTab] = useState<"calendar" | "habits" | "goals" | "settings">("calendar");
+  const [activeTab, setActiveTab] = useState<"calendar" | "habits" | "goals" | "reviews" | "settings">("calendar");
   const [settings, setSettings] = useState<Settings | null>(null);
   const [habits, setHabits] = useState<Habit[]>([]);
   const [goals, setGoals] = useState<Goal[]>([]);
   const [blocks, setBlocks] = useState<Block[]>([]);
+  const [reviews, setReviews] = useState<any[]>([]);
   const [currentWeekStart, setCurrentWeekStart] = useState<Date>(() => {
     const today = new Date();
     const day = today.getDay();
@@ -77,11 +78,12 @@ export default function Dashboard() {
   const [editingGoal, setEditingGoal] = useState<Partial<Goal> | null>(null);
   const [selectedBlock, setSelectedBlock] = useState<Block | null>(null);
 
-  // Load initial settings, habits, goals
+  // Load initial settings, habits, goals, reviews
   useEffect(() => {
     fetchSettings();
     fetchHabits();
     fetchGoals();
+    fetchReviews();
   }, []);
 
   // Fetch blocks when week changes
@@ -121,6 +123,15 @@ export default function Dashboard() {
     }
   };
 
+  const fetchReviews = async () => {
+    try {
+      const res = await fetch("/api/reviews");
+      if (res.ok) setReviews(await res.json());
+    } catch (err) {
+      console.error("Error fetching reviews:", err);
+    }
+  };
+
   const fetchBlocks = async () => {
     setLoading(true);
     try {
@@ -134,6 +145,48 @@ export default function Dashboard() {
       setLoading(false);
     }
   };
+
+  const saveFeedback = async (reviewId: string, feedback: string) => {
+    setActionLoading(true);
+    try {
+      const res = await fetch(`/api/reviews/${reviewId}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ feedback }),
+      });
+      if (res.ok) {
+        showStatus("Coaching feedback saved successfully!");
+        fetchReviews();
+      } else {
+        showStatus("Failed to save feedback", "error");
+      }
+    } catch (err) {
+      showStatus("Error saving feedback", "error");
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
+  const triggerReview = async () => {
+    setActionLoading(true);
+    try {
+      const res = await fetch("/api/cron/daily-review", { method: "POST" });
+      if (res.ok) {
+        showStatus("Daily review successfully triggered and adjustments applied!");
+        fetchReviews();
+        fetchBlocks();
+        fetchGoals();
+      } else {
+        const data = await res.json();
+        showStatus(data.error || "Failed to trigger review", "error");
+      }
+    } catch (err) {
+      showStatus("Error running daily review", "error");
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
 
   const handleManualReplan = async () => {
     setActionLoading(true);
@@ -472,6 +525,9 @@ export default function Dashboard() {
           </button>
           <button onClick={() => setActiveTab("goals")} className={`tab-btn ${activeTab === "goals" ? "active" : ""}`}>
             Goals
+          </button>
+          <button onClick={() => setActiveTab("reviews")} className={`tab-btn ${activeTab === "reviews" ? "active" : ""}`}>
+            Coaching Reviews
           </button>
           <button onClick={() => setActiveTab("settings")} className={`tab-btn ${activeTab === "settings" ? "active" : ""}`}>
             Settings
@@ -850,6 +906,107 @@ export default function Dashboard() {
             </button>
           </div>
         </form>
+      )}
+
+      {activeTab === "reviews" && (
+        <div style={{ maxWidth: 800, margin: "0 auto" }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 24 }}>
+            <h2 style={{ fontSize: "1.5rem" }}>Daily Coaching Reviews</h2>
+            <button
+              onClick={triggerReview}
+              disabled={actionLoading || !settings?.connected}
+              className="btn btn-primary"
+            >
+              {actionLoading ? "Analyzing..." : "Trigger Daily Coaching Review"}
+            </button>
+          </div>
+
+          <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
+            {reviews.length === 0 ? (
+              <div className="glass-panel" style={{ padding: 48, textAlign: "center", color: "var(--foreground-secondary)" }}>
+                No daily coaching reviews generated yet. Click above to run your first review!
+              </div>
+            ) : (
+              reviews.map(r => {
+                const adjustments = JSON.parse(r.adjustments || "{}");
+                const dateLabel = new Date(r.date).toLocaleDateString(undefined, {
+                  weekday: "long",
+                  year: "numeric",
+                  month: "long",
+                  day: "numeric",
+                });
+
+                return (
+                  <div key={r.id} className="glass-panel" style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", borderBottom: "1px solid rgba(255,255,255,0.06)", paddingBottom: 10 }}>
+                      <h3 style={{ fontSize: "1.15rem", color: "var(--accent-purple)" }}>{dateLabel}</h3>
+                      <span style={{ fontSize: "0.8rem", color: "var(--foreground-secondary)" }}>
+                        Generated {new Date(r.createdAt).toLocaleTimeString()}
+                      </span>
+                    </div>
+
+                    <div>
+                      <h4 style={{ fontSize: "0.95rem", textTransform: "uppercase", color: "var(--foreground-secondary)", marginBottom: 8, letterSpacing: "0.05em" }}>
+                        Agent Summary
+                      </h4>
+                      <blockquote style={{ background: "rgba(0,0,0,0.2)", borderLeft: "4px solid var(--accent-purple)", padding: "12px 16px", borderRadius: "0 8px 8px 0", fontStyle: "italic", fontSize: "0.95rem" }}>
+                        {r.summary}
+                      </blockquote>
+                    </div>
+
+                    {((adjustments.blockStatusUpdates && adjustments.blockStatusUpdates.length > 0) ||
+                      (adjustments.goalPriorityUpdates && adjustments.goalPriorityUpdates.length > 0) ||
+                      (adjustments.goalCompletedMinUpdates && adjustments.goalCompletedMinUpdates.length > 0)) ? (
+                      <div>
+                        <h4 style={{ fontSize: "0.95rem", textTransform: "uppercase", color: "var(--foreground-secondary)", marginBottom: 8, letterSpacing: "0.05em" }}>
+                          Adjustments Automatically Applied
+                        </h4>
+                        <ul style={{ paddingLeft: 20, fontSize: "0.9rem", color: "var(--foreground-secondary)", display: "flex", flexDirection: "column", gap: 4 }}>
+                          {adjustments.blockStatusUpdates?.map((u: any, idx: number) => (
+                            <li key={idx}>Block status updated: Block <strong>{u.blockId}</strong> marked as <strong>{u.status}</strong></li>
+                          ))}
+                          {adjustments.goalPriorityUpdates?.map((u: any, idx: number) => (
+                            <li key={idx}>Goal priority updated: Goal <strong>{u.goalId}</strong> set to priority <strong>{u.priority}</strong></li>
+                          ))}
+                          {adjustments.goalCompletedMinUpdates?.map((u: any, idx: number) => (
+                            <li key={idx}>Goal progress logged: Goal <strong>{u.goalId}</strong> progress set to <strong>{Math.round(u.completedMin / 60)}h</strong></li>
+                          ))}
+                        </ul>
+                      </div>
+                    ) : (
+                      <div style={{ fontSize: "0.9rem", color: "var(--foreground-secondary)" }}>
+                        No planning or priority adjustments were required.
+                      </div>
+                    )}
+
+                    <div style={{ borderTop: "1px solid rgba(255,255,255,0.06)", paddingTop: 16 }}>
+                      <form
+                        onSubmit={(e) => {
+                          e.preventDefault();
+                          const val = new FormData(e.currentTarget).get("feedback") as string;
+                          saveFeedback(r.id, val);
+                        }}
+                        style={{ display: "flex", flexDirection: "column", gap: 10 }}
+                      >
+                        <label htmlFor={`fb-${r.id}`}>Feedback / Corrections</label>
+                        <textarea
+                          id={`fb-${r.id}`}
+                          name="feedback"
+                          rows={2}
+                          defaultValue={r.feedback || ""}
+                          placeholder="Correct anything the agent got wrong, or log comments on your progress..."
+                        />
+                        <button type="submit" disabled={actionLoading} className="btn btn-secondary" style={{ alignSelf: "flex-end", padding: "6px 16px", fontSize: "0.85rem" }}>
+                          {actionLoading ? "Saving..." : "Save Feedback"}
+                        </button>
+                      </form>
+                    </div>
+                  </div>
+                );
+              })
+            )}
+          </div>
+        </div>
       )}
 
       {/* Habit modal dialog */}

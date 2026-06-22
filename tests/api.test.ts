@@ -11,6 +11,8 @@ import { GET as getGoals, POST as postGoals } from "../app/api/goals/route";
 import { PUT as putGoal, DELETE as deleteGoal } from "../app/api/goals/[id]/route";
 import { GET as getBlocks } from "../app/api/blocks/route";
 import { PUT as putBlock } from "../app/api/blocks/[id]/route";
+import { GET as getReviews } from "../app/api/reviews/route";
+import { PUT as putReview } from "../app/api/reviews/[id]/route";
 import { prisma } from "../lib/db";
 
 describe("Habits and Goals API Routes", () => {
@@ -142,4 +144,32 @@ describe("Habits and Goals API Routes", () => {
     const updatedBlock = await resPut.json();
     expect(updatedBlock.status).toBe("done");
   });
+
+  it("handles daily review queries and updates", async () => {
+    // Create a review
+    const review = await prisma.dailyReview.create({
+      data: {
+        date: new Date(),
+        summary: "Day review summary text",
+        adjustments: "{}",
+      },
+    });
+
+    // Query reviews
+    const resGet = await getReviews();
+    const reviews = await resGet.json();
+    expect(reviews.length).toBeGreaterThan(0);
+    expect(reviews[0].id).toBe(review.id);
+
+    // Update feedback
+    const reqPut = new Request(`http://localhost:3000/api/reviews/${review.id}`, {
+      method: "PUT",
+      body: JSON.stringify({ feedback: "I feel great about today!" }),
+      headers: { "content-type": "application/json" },
+    });
+    const resPut = await putReview(reqPut, { params: Promise.resolve({ id: review.id }) });
+    const updatedReview = await resPut.json();
+    expect(updatedReview.feedback).toBe("I feel great about today!");
+  });
 });
+

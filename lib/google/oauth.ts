@@ -4,7 +4,10 @@ import { prisma } from "@/lib/db";
 import { encrypt, decrypt } from "@/lib/crypto";
 import { getSettings } from "@/lib/settings";
 
-const SCOPES = ["https://www.googleapis.com/auth/calendar"];
+const SCOPES = [
+  "https://www.googleapis.com/auth/calendar",
+  "https://www.googleapis.com/auth/gmail.send"
+];
 
 function client(): OAuth2Client {
   return new google.auth.OAuth2(
