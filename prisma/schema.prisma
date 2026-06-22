@@ -1,0 +1,74 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  // Dev/test uses SQLite; switch provider to "postgresql" for production.
+  provider = "sqlite"
+}
+
+model Settings {
+  id              Int      @id @default(1)
+  timeZone        String   @default("America/Los_Angeles")
+  // JSON string: { "mon": {"wakeMin":420,"sleepMin":1380,"workStartMin":540,"workEndMin":1020}, ... }
+  dayWindows      String
+  blackoutDays    String   @default("[]") // JSON string array of ISO dates "2026-06-25"
+  agentReviewMin  Int      @default(1080) // minutes after midnight, default 18:00
+  agentProvider   String   @default("openrouter")
+  email           String?
+  googleRefresh   String?  // encrypted refresh token; null until connected
+  googleAccessTok String?
+  googleTokenExp  DateTime?
+  updatedAt       DateTime @updatedAt
+}
+
+model Habit {
+  id           String   @id @default(cuid())
+  name         String
+  durationMin  Int
+  perWeek      Int      // frequency: times per week (daily = 7)
+  timeOfDay    String   @default("any") // morning|afternoon|evening|any
+  priority     Int      @default(3)     // 1 (highest) .. 5
+  fixedDays    String   @default("[]")  // JSON string array e.g. ["mon","wed","fri"]; "[]" = flexible
+  type         String   @default("normal") // normal|sleep
+  createdAt    DateTime @default(now())
+  blocks       Block[]
+}
+
+model Goal {
+  id             String   @id @default(cuid())
+  name           String
+  totalEffortMin Int
+  completedMin   Int      @default(0)
+  deadline       DateTime
+  earliestStart  DateTime @default(now())
+  sessionMinMin  Int      @default(30)
+  sessionMaxMin  Int      @default(120)
+  timeOfDay      String   @default("any")
+  priority       Int      @default(3)
+  createdAt      DateTime @default(now())
+  blocks         Block[]
+}
+
+model Block {
+  id            String   @id @default(cuid())
+  start         DateTime
+  end           DateTime
+  status        String   @default("planned") // planned|done|partial|skipped
+  googleEventId String?
+  source        String   @default("planner") // always "planner" for app blocks
+  habitId       String?
+  habit         Habit?   @relation(fields: [habitId], references: [id], onDelete: Cascade)
+  goalId        String?
+  goal          Goal?    @relation(fields: [goalId], references: [id], onDelete: Cascade)
+  createdAt     DateTime @default(now())
+}
+
+model DailyReview {
+  id          String   @id @default(cuid())
+  date        DateTime
+  summary     String
+  adjustments String   @default("{}") // JSON string of structured adjustments
+  feedback    String?
+  createdAt   DateTime @default(now())
+}
