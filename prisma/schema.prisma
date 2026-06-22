@@ -19,6 +19,7 @@ model Settings {
   googleRefresh   String?  // encrypted refresh token; null until connected
   googleAccessTok String?
   googleTokenExp  DateTime?
+  googleSyncToken String?  // Google Calendar sync token for incremental updates
   updatedAt       DateTime @updatedAt
 }
 

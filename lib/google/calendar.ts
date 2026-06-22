@@ -123,3 +123,42 @@ export async function listAllEvents(
   return response.data.items || [];
 }
 
+export async function getInitialSyncToken(auth: any): Promise<string> {
+  const calendar = google.calendar({ version: "v3", auth }) as calendar_v3.Calendar;
+  let pageToken: string | undefined = undefined;
+  let nextSyncToken: string | undefined = undefined;
+
+  do {
+    const response: any = await calendar.events.list({
+      calendarId: "primary",
+      pageToken,
+      maxResults: 250,
+    });
+    nextSyncToken = response.data.nextSyncToken;
+    pageToken = response.data.nextPageToken;
+  } while (pageToken && !nextSyncToken);
+
+  if (!nextSyncToken) {
+    throw new Error("Failed to retrieve initial sync token from Google Calendar");
+  }
+  return nextSyncToken;
+}
+
+export async function listIncrementalEvents(
+  auth: any,
+  syncToken: string
+): Promise<{ items: any[]; nextSyncToken?: string }> {
+  const calendar = google.calendar({ version: "v3", auth }) as calendar_v3.Calendar;
+
+  const response = await calendar.events.list({
+    calendarId: "primary",
+    syncToken,
+  });
+
+  return {
+    items: response.data.items || [],
+    nextSyncToken: response.data.nextSyncToken || undefined,
+  };
+}
+
+
