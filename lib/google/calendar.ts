@@ -1,0 +1,107 @@
+import { google, calendar_v3 } from "googleapis";
+import { PlannedBlock } from "../engine";
+
+export interface CalendarEventResponse {
+  id: string;
+  name: string;
+  start: Date;
+  end: Date;
+  habitId?: string;
+  goalId?: string;
+}
+
+export async function listPlannerEvents(
+  auth: any,
+  timeMin: Date,
+  timeMax: Date
+): Promise<CalendarEventResponse[]> {
+  const calendar = google.calendar({ version: "v3", auth }) as calendar_v3.Calendar;
+  
+  const response = await calendar.events.list({
+    calendarId: "primary",
+    timeMin: timeMin.toISOString(),
+    timeMax: timeMax.toISOString(),
+    privateExtendedProperty: ["beniPlanner=1"],
+    singleEvents: true,
+  });
+
+  const items = response.data.items || [];
+  return items.map((item: any) => ({
+    id: item.id || "",
+    name: item.summary || "",
+    start: new Date(item.start?.dateTime || item.start?.date || ""),
+    end: new Date(item.end?.dateTime || item.end?.date || ""),
+    habitId: item.extendedProperties?.private?.habitId,
+    goalId: item.extendedProperties?.private?.goalId,
+  }));
+}
+
+export async function createPlannerEvent(auth: any, block: PlannedBlock): Promise<any> {
+  const calendar = google.calendar({ version: "v3", auth }) as calendar_v3.Calendar;
+
+  const privateProperties: Record<string, string> = {
+    beniPlanner: "1",
+  };
+  if (block.habitId) privateProperties.habitId = block.habitId;
+  if (block.goalId) privateProperties.goalId = block.goalId;
+
+  const response = await calendar.events.insert({
+    calendarId: "primary",
+    requestBody: {
+      summary: block.name,
+      start: {
+        dateTime: block.start.toISOString(),
+      },
+      end: {
+        dateTime: block.end.toISOString(),
+      },
+      extendedProperties: {
+        private: privateProperties,
+      },
+    },
+  });
+
+  return response.data;
+}
+
+export async function updatePlannerEvent(
+  auth: any,
+  googleEventId: string,
+  block: PlannedBlock
+): Promise<any> {
+  const calendar = google.calendar({ version: "v3", auth }) as calendar_v3.Calendar;
+
+  const privateProperties: Record<string, string> = {
+    beniPlanner: "1",
+  };
+  if (block.habitId) privateProperties.habitId = block.habitId;
+  if (block.goalId) privateProperties.goalId = block.goalId;
+
+  const response = await calendar.events.update({
+    calendarId: "primary",
+    eventId: googleEventId,
+    requestBody: {
+      summary: block.name,
+      start: {
+        dateTime: block.start.toISOString(),
+      },
+      end: {
+        dateTime: block.end.toISOString(),
+      },
+      extendedProperties: {
+        private: privateProperties,
+      },
+    },
+  });
+
+  return response.data;
+}
+
+export async function deletePlannerEvent(auth: any, googleEventId: string): Promise<void> {
+  const calendar = google.calendar({ version: "v3", auth }) as calendar_v3.Calendar;
+
+  await calendar.events.delete({
+    calendarId: "primary",
+    eventId: googleEventId,
+  });
+}
