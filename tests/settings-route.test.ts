@@ -1,6 +1,12 @@
-import { describe, it, expect, afterAll } from "vitest";
+import { describe, it, expect, afterAll, vi } from "vitest";
+
+vi.mock("@/lib/scheduler", () => ({
+  runScheduling: vi.fn().mockResolvedValue(undefined),
+}));
+
 import { GET, PUT } from "@/app/api/settings/route";
 import { prisma } from "@/lib/db";
+
 
 describe("settings route", () => {
   it("GET returns settings without token fields", async () => {
