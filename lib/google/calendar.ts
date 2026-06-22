@@ -105,3 +105,21 @@ export async function deletePlannerEvent(auth: any, googleEventId: string): Prom
     eventId: googleEventId,
   });
 }
+
+export async function listAllEvents(
+  auth: any,
+  timeMin: Date,
+  timeMax: Date
+): Promise<any[]> {
+  const calendar = google.calendar({ version: "v3", auth }) as calendar_v3.Calendar;
+
+  const response = await calendar.events.list({
+    calendarId: "primary",
+    timeMin: timeMin.toISOString(),
+    timeMax: timeMax.toISOString(),
+    singleEvents: true,
+  });
+
+  return response.data.items || [];
+}
+
