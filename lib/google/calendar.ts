@@ -113,14 +113,39 @@ export async function listAllEvents(
 ): Promise<any[]> {
   const calendar = google.calendar({ version: "v3", auth }) as calendar_v3.Calendar;
 
-  const response = await calendar.events.list({
-    calendarId: "primary",
-    timeMin: timeMin.toISOString(),
-    timeMax: timeMax.toISOString(),
-    singleEvents: true,
-  });
+  // Fetch all user calendars so we pick up events not in the primary calendar
+  const calListRes = await calendar.calendarList.list({ minAccessRole: "reader" });
+  let calIds: string[] = (calListRes.data.items || [])
+    .map((c: any) => c.id as string)
+    .filter(Boolean);
 
-  return response.data.items || [];
+  if (calIds.length === 0) calIds = ["primary"];
+
+  const results = await Promise.allSettled(
+    calIds.map(calendarId =>
+      calendar.events.list({
+        calendarId,
+        timeMin: timeMin.toISOString(),
+        timeMax: timeMax.toISOString(),
+        singleEvents: true,
+      })
+    )
+  );
+
+  const allEvents: any[] = [];
+  for (const result of results) {
+    if (result.status === "fulfilled") {
+      allEvents.push(...(result.value.data.items || []));
+    }
+  }
+
+  // Deduplicate by event ID (shared events may appear in multiple calendars)
+  const seen = new Set<string>();
+  return allEvents.filter(e => {
+    if (!e.id || seen.has(e.id)) return false;
+    seen.add(e.id);
+    return true;
+  });
 }
 
 export async function getInitialSyncToken(auth: any): Promise<string> {
