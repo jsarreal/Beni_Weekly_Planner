@@ -156,7 +156,17 @@ export default function Dashboard() {
       const start = currentWeekStart.toISOString();
       const end = new Date(currentWeekStart.getTime() + 7 * 24 * 60 * 60 * 1000).toISOString();
       const res = await fetch(`/api/blocks?start=${start}&end=${end}`);
-      if (res.ok) setBlocks(await res.json());
+      if (res.ok) {
+        const data = await res.json();
+        if (Array.isArray(data)) {
+          setBlocks(data);
+        } else {
+          setBlocks(data.blocks ?? []);
+          if (data.syncError) {
+            showStatus(`Google Calendar sync error: ${data.syncError}`, "error");
+          }
+        }
+      }
     } catch (err) {
       console.error("Error fetching blocks:", err);
     } finally {

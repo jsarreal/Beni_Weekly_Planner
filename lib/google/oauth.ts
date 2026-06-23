@@ -42,6 +42,9 @@ export async function exchangeCode(code: string): Promise<void> {
 export async function getAuthedClient(): Promise<OAuth2Client> {
   const s = await getSettings();
   if (!s.googleRefresh) throw new Error("Google not connected");
+  const tokenExpiry = s.googleTokenExp ? s.googleTokenExp.toISOString() : "none";
+  const isExpired = s.googleTokenExp ? s.googleTokenExp.getTime() < Date.now() : true;
+  console.log(`[OAuth] Building auth client. Token expiry: ${tokenExpiry}, expired: ${isExpired}`);
   const c = client();
   try {
     c.setCredentials({

@@ -12,22 +12,27 @@ import {
 } from "./google/calendar";
 
 export async function runScheduling(): Promise<void> {
+  console.log("[Scheduler] runScheduling() started");
+
   // 1. Check Google OAuth connection
   const settings = await getSettings();
   if (!settings.googleRefresh) {
     console.log("[Scheduler] Google Calendar not connected, skipping scheduling.");
     return;
   }
+  console.log("[Scheduler] Google token present, proceeding");
 
   // 2. Setup scheduling window: rolling 14 days
   const now = new Date();
   const startOfToday = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
   const windowStart = startOfToday;
   const windowEnd = new Date(startOfToday.getTime() + 14 * 24 * 60 * 60 * 1000);
+  console.log(`[Scheduler] Window: ${windowStart.toISOString()} → ${windowEnd.toISOString()}`);
 
   // 3. Fetch active Habits and Goals
   const habits = await prisma.habit.findMany();
   const goals = await prisma.goal.findMany();
+  console.log(`[Scheduler] Loaded ${habits.length} habits, ${goals.length} goals`);
 
   // Map habits and goals to PlanItem
   const planItems: PlanItem[] = [
@@ -58,8 +63,11 @@ export async function runScheduling(): Promise<void> {
   ];
 
   // 4. Fetch busy events from Google Calendar
+  console.log("[Scheduler] Acquiring OAuth client...");
   const auth = await getAuthedClient();
+  console.log("[Scheduler] Fetching all Google Calendar events in window...");
   const googleEvents = await listAllEvents(auth, windowStart, windowEnd);
+  console.log(`[Scheduler] Fetched ${googleEvents.length} Google Calendar events`);
 
   const existingEvents: CalendarEvent[] = googleEvents.map((item: any) => ({
     id: item.id || "",
@@ -81,7 +89,9 @@ export async function runScheduling(): Promise<void> {
   };
 
   // 6. Run Scheduling Engine
+  console.log("[Scheduler] Running plan engine...");
   const desiredBlocks = plan(planItems, constraints, existingEvents, { start: windowStart, end: windowEnd });
+  console.log(`[Scheduler] Plan produced ${desiredBlocks.length} desired blocks`);
 
   // 7. Run Reconciliation
   const reconcileEvents = googleEvents
@@ -96,6 +106,7 @@ export async function runScheduling(): Promise<void> {
     }));
 
   const diff = reconcile(desiredBlocks, reconcileEvents);
+  console.log(`[Scheduler] Reconcile diff: ${diff.create.length} create, ${diff.update.length} update, ${diff.delete.length} delete`);
 
   // 8. Apply Diff to Google Calendar and Database
   
@@ -175,4 +186,6 @@ export async function runScheduling(): Promise<void> {
       });
     }
   }
+
+  console.log("[Scheduler] runScheduling() completed");
 }

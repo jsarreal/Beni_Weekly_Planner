@@ -44,29 +44,39 @@ export async function GET(req: Request) {
     // Fetch external events if Google Calendar is connected
     const settings = await getSettings();
     let externalEvents: any[] = [];
+    let syncError: string | null = null;
     if (settings.googleRefresh) {
+      console.log("[Blocks API] Fetching external Google Calendar events...");
       try {
         const auth = await getAuthedClient();
         const googleEvents = await listAllEvents(auth, start, end);
+        console.log(`[Blocks API] Google Calendar returned ${googleEvents.length} total events`);
         externalEvents = googleEvents
           .filter((e: any) => e.extendedProperties?.private?.beniPlanner !== "1")
-          .map((item: any) => ({
-            id: item.id || "",
-            start: new Date(item.start?.dateTime || item.start?.date || ""),
-            end: new Date(item.end?.dateTime || item.end?.date || ""),
-            status: "planned",
-            googleEventId: item.id || "",
-            name: item.summary || "Busy",
-            type: "external",
-            habitId: undefined,
-            goalId: undefined,
-          }));
-      } catch (err) {
-        console.error("[Blocks API] Failed to fetch Google Calendar events:", err);
+          .map((item: any) => {
+            const startDt = item.start?.dateTime || item.start?.date;
+            const endDt = item.end?.dateTime || item.end?.date;
+            return {
+              id: item.id || "",
+              start: startDt ? new Date(startDt) : null,
+              end: endDt ? new Date(endDt) : null,
+              status: "planned",
+              googleEventId: item.id || "",
+              name: item.summary || "Busy",
+              type: "external",
+              habitId: undefined,
+              goalId: undefined,
+            };
+          })
+          .filter((e: any) => e.start && e.end && !isNaN(e.start.getTime()) && !isNaN(e.end.getTime()));
+        console.log(`[Blocks API] ${externalEvents.length} external events after filtering`);
+      } catch (err: any) {
+        syncError = err?.message ?? String(err);
+        console.error("[Blocks API] Failed to fetch Google Calendar events:", syncError);
       }
     }
 
-    return NextResponse.json([...mapped, ...externalEvents]);
+    return NextResponse.json({ blocks: [...mapped, ...externalEvents], syncError });
   } catch (err: any) {
     return NextResponse.json({ error: err.message || err }, { status: 400 });
   }

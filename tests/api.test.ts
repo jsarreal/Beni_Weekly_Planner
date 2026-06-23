@@ -138,7 +138,8 @@ describe("Habits and Goals API Routes", () => {
     // Query blocks
     const reqGet = new Request("http://localhost:3000/api/blocks?start=2026-06-22T00:00:00Z&end=2026-06-23T00:00:00Z");
     const resGet = await getBlocks(reqGet);
-    const blocks = await resGet.json();
+    const payload = await resGet.json();
+    const blocks = Array.isArray(payload) ? payload : (payload.blocks ?? []);
     expect(blocks.length).toBeGreaterThan(0);
     expect(blocks[0].id).toBe(block.id);
 
