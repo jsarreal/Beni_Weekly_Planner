@@ -523,7 +523,10 @@ export default function Dashboard() {
 
         <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
           {settings?.connected ? (
-            <span className="badge badge-connected">Google Calendar Connected</span>
+            <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+              <span className="badge badge-connected">Google Calendar Connected</span>
+              <a href="/api/auth/google" className="badge badge-disconnected" style={{ fontSize: "11px", padding: "4px 8px" }}>Reconnect</a>
+            </div>
           ) : (
             <a href="/api/auth/google" className="badge badge-disconnected">Connect Google Calendar</a>
           )}
@@ -904,6 +907,7 @@ export default function Dashboard() {
               <select name="agentProvider" id="agentProvider" defaultValue={settings.agentProvider}>
                 <option value="openrouter">OpenRouter</option>
                 <option value="claude">Claude (Anthropic API)</option>
+                <option value="gemini">Gemini / Antigravity API</option>
                 <option value="agy">Antigravity CLI (agy)</option>
                 <option value="fake">Fake (Mock tests)</option>
               </select>

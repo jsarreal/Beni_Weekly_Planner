@@ -142,6 +142,60 @@ export class AgyRunner implements AgentRunner {
   }
 }
 
+export class GeminiRunner implements AgentRunner {
+  async runReview(input: ReviewInput): Promise<ReviewResult> {
+    const apiKey = process.env.GEMINI_API_KEY || "";
+    if (!apiKey) {
+      throw new Error("Gemini API key is not configured. Please set GEMINI_API_KEY in your environment.");
+    }
+    const model = process.env.GEMINI_MODEL || "gemini-2.5-flash";
+    const prompt = constructPrompt(input);
+
+    const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        systemInstruction: {
+          parts: [
+            { text: "You are Beni's daily calendar and coaching agent. You output JSON only." }
+          ]
+        },
+        contents: [
+          {
+            role: "user",
+            parts: [
+              { text: prompt }
+            ]
+          }
+        ],
+        generationConfig: {
+          responseMimeType: "application/json"
+        }
+      }),
+    });
+
+    if (!res.ok) {
+      throw new Error(`Gemini API failed with status ${res.status}: ${await res.text()}`);
+    }
+
+    const data = await res.json();
+    const text = data.candidates?.[0]?.content?.parts?.[0]?.text;
+    if (!text) {
+      throw new Error(`Invalid response structure from Gemini API: ${JSON.stringify(data)}`);
+    }
+
+    // Safety check for parsing JSON
+    const jsonStart = text.indexOf("{");
+    const jsonEnd = text.lastIndexOf("}");
+    if (jsonStart === -1 || jsonEnd === -1) {
+      throw new Error(`Failed to extract JSON from Gemini output: ${text}`);
+    }
+    return JSON.parse(text.substring(jsonStart, jsonEnd + 1));
+  }
+}
+
 export class ClaudeRunner implements AgentRunner {
   async runReview(input: ReviewInput): Promise<ReviewResult> {
     const apiKey = process.env.ANTHROPIC_API_KEY || "";
@@ -193,6 +247,9 @@ export function getAgentRunner(provider: string): AgentRunner {
   }
   if (prov === "agy") {
     return new AgyRunner();
+  }
+  if (prov === "gemini" || prov === "antigravity") {
+    return new GeminiRunner();
   }
   if (prov === "claude" || prov === "anthropic") {
     return new ClaudeRunner();
