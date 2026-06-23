@@ -115,9 +115,10 @@ export async function listAllEvents(
 
   // Fetch all user calendars so we pick up events not in the primary calendar
   const calListRes = await calendar.calendarList.list({ minAccessRole: "reader" });
-  let calIds: string[] = (calListRes.data.items || [])
-    .map((c: any) => c.id as string)
-    .filter(Boolean);
+  const calItems = calListRes.data.items || [];
+  let calIds: string[] = calItems.map((c: any) => c.id as string).filter(Boolean);
+
+  console.log(`[Calendar] Found ${calIds.length} calendars: ${calItems.map((c: any) => `"${c.summary}" (${c.id})`).join(", ")}`);
 
   if (calIds.length === 0) calIds = ["primary"];
 
@@ -133,9 +134,15 @@ export async function listAllEvents(
   );
 
   const allEvents: any[] = [];
-  for (const result of results) {
+  for (let i = 0; i < results.length; i++) {
+    const result = results[i];
+    const calId = calIds[i];
     if (result.status === "fulfilled") {
+      const count = result.value.data.items?.length ?? 0;
+      if (count > 0) console.log(`[Calendar] "${calId}" → ${count} events`);
       allEvents.push(...(result.value.data.items || []));
+    } else {
+      console.error(`[Calendar] Failed to fetch "${calId}":`, (result.reason as any)?.message ?? result.reason);
     }
   }
 
