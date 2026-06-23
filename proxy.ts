@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 
 const PUBLIC_PATHS = ["/login", "/api/auth/login"];
 
-export async function middleware(req: NextRequest) {
+export async function proxy(req: NextRequest) {
   const { pathname } = req.nextUrl;
 
   if (PUBLIC_PATHS.some(p => pathname.startsWith(p))) {
@@ -11,7 +11,6 @@ export async function middleware(req: NextRequest) {
 
   const secret = process.env.SESSION_SECRET;
   if (!secret) {
-    // SESSION_SECRET not configured — block access rather than allow everything
     return NextResponse.redirect(new URL("/login", req.url));
   }
 
@@ -35,13 +34,13 @@ async function verifySessionToken(token: string, secret: string): Promise<boolea
     );
     const sigBytes = hexToBytes(token);
     if (sigBytes.length === 0) return false;
-    return await crypto.subtle.verify("HMAC", key, sigBytes, encoder.encode("auth"));
+    return await crypto.subtle.verify("HMAC", key, sigBytes.buffer as ArrayBuffer, encoder.encode("auth"));
   } catch {
     return false;
   }
 }
 
-function hexToBytes(hex: string): Uint8Array {
+function hexToBytes(hex: string): Uint8Array<ArrayBuffer> {
   if (hex.length % 2 !== 0) return new Uint8Array(0);
   const bytes = new Uint8Array(hex.length / 2);
   for (let i = 0; i < bytes.length; i++) {
