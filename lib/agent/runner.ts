@@ -91,7 +91,8 @@ export class OpenRouterRunner implements AgentRunner {
           { role: "system", content: "You are Beni's daily calendar and coaching agent. You output JSON only." },
           { role: "user", content: prompt }
         ],
-        response_format: { type: "json_object" }
+        response_format: { type: "json_object" },
+        max_tokens: 2000
       }),
     });
 
